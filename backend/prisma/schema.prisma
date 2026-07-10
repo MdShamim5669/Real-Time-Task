@@ -1,0 +1,89 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("MEMBER") // ADMIN, MANAGER, MEMBER
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  members   Member[]
+}
+
+model Period {
+  id        String    @id @default(uuid())
+  name      String    // e.g., "July 2026"
+  active    Boolean   @default(true)
+  startDate DateTime
+  endDate   DateTime?
+  meals     Meal[]
+  expenses  Expense[]
+  deposits  Deposit[]
+  rosters   Roster[]
+}
+
+model Member {
+  id        String    @id @default(uuid())
+  name      String
+  email     String?   @unique
+  phone     String?
+  userId    String?
+  user      User?     @relation(fields: [userId], references: [id])
+  createdAt DateTime  @default(now())
+  meals     Meal[]
+  expenses  Expense[]
+  deposits  Deposit[]
+  rosters   Roster[]
+}
+
+model Meal {
+  id        String   @id @default(uuid())
+  date      DateTime
+  count     Float    @default(0.0) // can be 0.5, 1, 1.5, 2, etc.
+  memberId  String
+  member    Member   @relation(fields: [memberId], references: [id])
+  periodId  String
+  period    Period   @relation(fields: [periodId], references: [id])
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  amount      Float
+  description String
+  date        DateTime
+  memberId    String
+  member      Member   @relation(fields: [memberId], references: [id])
+  periodId    String
+  period      Period   @relation(fields: [periodId], references: [id])
+}
+
+model Deposit {
+  id        String   @id @default(uuid())
+  amount    Float
+  date      DateTime
+  memberId  String
+  member    Member   @relation(fields: [memberId], references: [id])
+  periodId  String
+  period    Period   @relation(fields: [periodId], references: [id])
+}
+
+model Roster {
+  id        String   @id @default(uuid())
+  date      DateTime
+  dutyType  String   // e.g., "MARKET", "COOKING"
+  memberId  String
+  member    Member   @relation(fields: [memberId], references: [id])
+  periodId  String
+  period    Period   @relation(fields: [periodId], references: [id])
+}

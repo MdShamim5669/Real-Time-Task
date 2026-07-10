@@ -1,0 +1,6 @@
+{
+  "name": "Realtime Task Dashboard",
+  "description": "A collaborative task organizer showcasing secure authentication and real-time data synchronization with Firebase.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

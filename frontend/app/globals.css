@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+/* Global styles placeholder */
+body {
+  font-family: var(--font-sans);
+}

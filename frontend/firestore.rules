@@ -1,0 +1,135 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny-all catch-all rule (Safety Net)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Reusable global helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Validation for Task entity (Pillar 2)
+    function isValidTask(data) {
+      return data.keys().hasAll(['title', 'status', 'priority', 'ownerId', 'ownerEmail', 'createdAt', 'updatedAt'])
+        && data.keys().size() >= 7
+        && data.keys().size() <= 12
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 150
+        && (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 1000))
+        && data.status is string && data.status in ['todo', 'in_progress', 'done']
+        && data.priority is string && data.priority in ['low', 'medium', 'high']
+        && (!('dueDate' in data) || data.dueDate == null || (data.dueDate is string && data.dueDate.size() <= 64))
+        && data.ownerId is string && data.ownerId == request.auth.uid
+        && data.ownerEmail is string && data.ownerEmail == request.auth.token.email
+        && (!('assigneeId' in data) || data.assigneeId == null || (data.assigneeId is string && data.assigneeId.size() <= 128))
+        && (!('assigneeEmail' in data) || data.assigneeEmail == null || (data.assigneeEmail is string && data.assigneeEmail.size() <= 256))
+        && (!('position' in data) || data.position == null || (data.position is number));
+    }
+
+    // Validation for Comment entity (Pillar 2)
+    function isValidComment(data) {
+      return data.keys().hasAll(['text', 'authorId', 'authorEmail', 'createdAt'])
+        && data.keys().size() == 4
+        && data.text is string && data.text.size() > 0 && data.text.size() <= 1000
+        && data.authorId is string && data.authorId == request.auth.uid
+        && data.authorEmail is string && data.authorEmail == request.auth.token.email;
+    }
+
+    // Collection: tasks (Pillars 1, 4, 8)
+    match /tasks/{taskId} {
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+
+      allow create: if isEmailVerified()
+        && isValidId(taskId)
+        && isValidTask(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isEmailVerified()
+        && isValidId(taskId)
+        && (
+          // Action 1: Owner updates everything except immutable creation/owner keys
+          (existing().ownerId == request.auth.uid
+            && isValidTask(incoming())
+            && incoming().ownerId == existing().ownerId
+            && incoming().ownerEmail == existing().ownerEmail
+            && incoming().createdAt == existing().createdAt
+            && incoming().updatedAt == request.time
+          )
+          // Action 2: Assignee updates ONLY 'status', 'position', and 'updatedAt' (Pillar 4)
+          || (existing().assigneeId == request.auth.uid
+            && isValidTask(incoming())
+            && incoming().ownerId == existing().ownerId
+            && incoming().ownerEmail == existing().ownerEmail
+            && incoming().createdAt == existing().createdAt
+            && incoming().title == existing().title
+            && (!('description' in existing()) && !('description' in incoming()) || (incoming().description == existing().description))
+            && (!('dueDate' in existing()) && !('dueDate' in incoming()) || (incoming().dueDate == existing().dueDate))
+            && incoming().priority == existing().priority
+            && incoming().assigneeId == existing().assigneeId
+            && incoming().assigneeEmail == existing().assigneeEmail
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'position', 'updatedAt'])
+          )
+          // Action 3: Any verified user can claim an unassigned task and set initial position (Pillar 4)
+          || (existing().assigneeId == null
+            && (existing().assigneeEmail == null || existing().assigneeEmail == request.auth.token.email)
+            && isValidTask(incoming())
+            && incoming().ownerId == existing().ownerId
+            && incoming().ownerEmail == existing().ownerEmail
+            && incoming().createdAt == existing().createdAt
+            && incoming().title == existing().title
+            && (!('description' in existing()) && !('description' in incoming()) || (incoming().description == existing().description))
+            && (!('dueDate' in existing()) && !('dueDate' in incoming()) || (incoming().dueDate == existing().dueDate))
+            && incoming().priority == existing().priority
+            && incoming().status == existing().status
+            && incoming().assigneeId == request.auth.uid
+            && incoming().assigneeEmail == request.auth.token.email
+            && incoming().updatedAt == request.time
+            && incoming().diff(existing()).affectedKeys().hasOnly(['assigneeId', 'assigneeEmail', 'position', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isEmailVerified()
+        && isValidId(taskId)
+        && existing().ownerId == request.auth.uid;
+
+      // Nested Collection: comments (Subcollection)
+      match /comments/{commentId} {
+        allow get: if isSignedIn();
+        allow list: if isSignedIn();
+
+        allow create: if isEmailVerified()
+          && isValidId(commentId)
+          && isValidComment(incoming())
+          && incoming().createdAt == request.time;
+
+        allow delete: if isEmailVerified()
+          && isValidId(commentId)
+          && existing().authorId == request.auth.uid;
+
+        allow update: if false; // Comments are immutable
+      }
+    }
+  }
+}
